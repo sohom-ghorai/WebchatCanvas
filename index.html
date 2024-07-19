@@ -1,0 +1,757 @@
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css" />
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+    <div id="banner">
+        <div id="logo-container">
+            <img src="https://dev-spartaservportal.azurewebsites.net/img/SS-Logo-Stripe.png" alt="Banner Image"
+                class="banner-image">
+            <h3>Sparta POC</h3>
+        </div>
+        <div id="button-container">
+            <button id="refreshButton" onclick="RefreshIFrame()"><i class="fas fa-sync-alt"></i></button>
+            <button id="closeButton" onclick="closeChatWindow()"><i class="fas fa-times"></i></button>
+        </div>
+    </div>
+    <div id="webchat"></div>
+</body>
+
+<script src="~/lib/jquery/dist/jquery.min.js"></script>
+<script src="https://cdn.botframework.com/botframework-webchat/latest/webchat.js"></script>
+<script type="text/javascript" src="https://alcdn.msauth.net/lib/1.2.0/js/msal.js"></script>
+<script type="text/javascript">
+    if (typeof Msal === 'undefined') document.write(unescape("%3Cscript src='https://alcdn.msftauth.net/lib/1.2.0/js/msal.js' type='text/javascript' %3E%3C/script%3E"));
+</script>
+
+<script>
+    // async function onSignIn() {
+    //     let requestObj = {
+    //         scopes: ["user.read", 'openid', 'profile']
+    //     };
+
+    //     //clientApplication.loginPopup(requestObj).then(function () { }).catch(function (error) { console.log(error) });
+    //     try {
+    //         let response = await clientApplication.acquireTokenSilent(requestObj);
+    //         console.log("Silent login successful", response);
+
+    //     } catch (error) {
+    //         console.log("Silent login failed, initiating interactive login", error);
+    //         clientApplication.loginPopup(requestObj).then(function () { }).catch(function (error) { console.log(error) });
+    //     }
+    // }
+
+    let FileName;
+    let FileType;
+    let FileContent;
+    let FileExtension;
+    let AllowFile;
+
+    async function onSignIn() {
+        let requestObj = {
+            scopes: ["user.read", 'openid', 'profile']
+        };
+
+        var url = parent.window.location.href;
+        var urlObj = new URL(url);
+        var pathname = urlObj.pathname;
+        var pathParts = pathname.split('/');
+        var controllerName = pathParts[1];
+
+
+        try {
+            let response = await clientApplication.acquireTokenSilent(requestObj);
+            console.log("Silent login successful", response);
+
+        } catch (error) {
+            console.log("Silent login failed, initiating interactive login", error);
+            //clientApplication.loginPopup(requestObj).then(function () { }).catch(function (error) { console.log(error) });
+        }
+
+    }
+
+
+    function getOAuthCardResourceUri(activity) {
+        if (activity &&
+            activity.attachments &&
+            activity.attachments[0] &&
+            activity.attachments[0].contentType === 'application/vnd.microsoft.card.oauth' &&
+            activity.attachments[0].content.tokenExchangeResource) {
+            // asking for token exchange with AAD
+            return activity.attachments[0].content.tokenExchangeResource.uri;
+        }
+    }
+
+    function exchangeTokenAsync(resourceUri) {
+        var url = parent.window.location.href;
+        var urlObj = new URL(url);
+        var pathname = urlObj.pathname;
+        var pathParts = pathname.split('/');
+        var controllerName = pathParts[1];
+
+        let user = clientApplication.getAccount();
+        if (user && controllerName && controllerName != null && controllerName != "Login") {
+            let requestObj = {
+                scopes: [resourceUri]
+            };
+            return clientApplication.acquireTokenSilent(requestObj)
+                .then(function (tokenResponse) {
+                    return tokenResponse.accessToken;
+                })
+                .catch(function (error) {
+                    console.log(error);
+                });
+        }
+        else {
+            return Promise.resolve(null);
+        }
+    }
+
+    async function fetchJSON(url, options = {}) {
+        const res = await fetch(url, {
+            ...options,
+            headers: {
+                ...options.headers,
+                accept: 'application/json'
+            }
+        });
+
+        if (!res.ok) {
+            throw new Error(`Failed to fetch JSON due to ${res.status}`);
+        }
+
+        return await res.json();
+    }
+</script>
+
+<script>
+    // var clientApplication;
+    // (function () {
+    //     var msalConfig = {
+    //         auth: {
+    //             clientId: '@SessionHelper.PortalClientId.ToString()',
+    //             authority: '@SessionHelper.PortalAuthenticationAuthority.ToString()',
+    //         },
+    //         cache: {
+    //             cacheLocation: 'localStorage',
+    //             storeAuthStateInCookie: false
+    //         }
+    //     };
+    //     if (!clientApplication) {
+    //         clientApplication = new Msal.UserAgentApplication(msalConfig);
+    //     }
+    // }());
+
+    (async function main() {
+        //onSignIn();
+        let styleSet = window.WebChat.createStyleSet({
+            bubbleBackground: '#ECEFF1',
+            bubbleFromUserBackground: '#091359',
+            bubbleTextColor: 'black',
+            bubbleFromUserTextColor: 'white',
+            bubbleBorderRadius: 10,
+            bubbleFromUserBorderRadius: 10,
+            buttonBackground: '#000000',
+            buttonTextColor: '#FFFFFF',
+            buttonBorderColor: '#FFFFFF',
+            buttonBorderRadius: 5,
+            buttonPadding: '10px 15px',
+            buttonHoverBackground: '#333333',
+            buttonHoverTextColor: '#FFFFFF',
+            suggestedActionBackground: '#FFFFFF',
+            suggestedActionBorderColor: '#8C8C8C',
+            suggestedActionTextColor: '#091359',  // Set Suggested Action button font color to #091359
+            suggestedActionBorderRadius: '5px',
+            suggestedActionPadding: '10px 15px',
+            primaryFont: 'Poppins, sans-serif',
+            monospaceFont: "'Poppins', monospace",
+        });
+
+        let styleOptions = {
+            botAvatarImage: 'https://dev-spartaservportal.azurewebsites.net/img/sparta-icon.png',
+            botAvatarInitials: 'Sparta',
+            hideUploadButton: true,
+        };
+        const adaptiveCardHostConfig = {
+            "hostCapabilities": {
+                "capabilities": null
+            },
+            "choiceSetInputValueSeparator": ",",
+            "supportsInteractivity": true,
+            "fontTypes": {
+                "default": {
+                    "fontFamily": "Poppins, sans-serif",
+                    "fontSizes": {
+                        "small": 12,
+                        "default": 13,
+                        "medium": 17,
+                        "large": 18,
+                        "extraLarge": 26
+                    },
+                    "fontWeights": {
+                        "lighter": 200,
+                        "default": 400,
+                        "bolder": 600
+                    }
+                },
+                "monospace": {
+                    "fontFamily": "Poppins, sans-serif",
+                    "fontSizes": {
+                        "small": 10,
+                        "default": 11,
+                        "medium": 15,
+                        "large": 18,
+                        "extraLarge": 21
+                    },
+                    "fontWeights": {
+                        "lighter": 200,
+                        "default": 400,
+                        "bolder": 600
+                    }
+                }
+            },
+            "spacing": {
+                "small": 3,
+                "default": 8,
+                "medium": 20,
+                "large": 30,
+                "extraLarge": 40,
+                "padding": 10
+            },
+            "separator": {
+                "lineThickness": 1,
+                "lineColor": "#EEEEEE"
+            },
+            "imageSizes": {
+                "small": 40,
+                "medium": 80,
+                "large": 160
+            },
+            "containerStyles": {
+                "default": {
+                    "foregroundColors": {
+                        "default": {
+                            "default": "#000000",
+                            "subtle": "#767676",
+                            "highlightColors": {
+                                "default": "#22000000",
+                                "subtle": "#11000000"
+                            }
+                        },
+                        "dark": {
+                            "default": "#000000",
+                            "subtle": "#66000000",
+                            "highlightColors": {
+                                "default": "#22000000",
+                                "subtle": "#11000000"
+                            }
+                        },
+                        "light": {
+                            "default": "#FFFFFF",
+                            "subtle": "#33000000",
+                            "highlightColors": {
+                                "default": "#22000000",
+                                "subtle": "#11000000"
+                            }
+                        },
+                        "accent": {
+                            "default": "#0063B1",
+                            "subtle": "#0063B1",
+                            "highlightColors": {
+                                "default": "#22000000",
+                                "subtle": "#11000000"
+                            }
+                        },
+                        "good": {
+                            "default": "#54a254",
+                            "subtle": "#DD54a254",
+                            "highlightColors": {
+                                "default": "#22000000",
+                                "subtle": "#11000000"
+                            }
+                        },
+                        "warning": {
+                            "default": "#c3ab23",
+                            "subtle": "#DDc3ab23",
+                            "highlightColors": {
+                                "default": "#22000000",
+                                "subtle": "#11000000"
+                            }
+                        },
+                        "attention": {
+                            "default": "#FF0000",
+                            "subtle": "#DDFF0000",
+                            "highlightColors": {
+                                "default": "#22000000",
+                                "subtle": "#11000000"
+                            }
+                        }
+                    },
+                    "backgroundColor": "#FFFFFF"
+                },
+                "emphasis": {
+                    "foregroundColors": {
+                        "default": {
+                            "default": "#000000",
+                            "subtle": "#767676",
+                            "highlightColors": {
+                                "default": "#22000000",
+                                "subtle": "#11000000"
+                            }
+                        },
+                        "dark": {
+                            "default": "#000000",
+                            "subtle": "#66000000",
+                            "highlightColors": {
+                                "default": "#22000000",
+                                "subtle": "#11000000"
+                            }
+                        },
+                        "light": {
+                            "default": "#FFFFFF",
+                            "subtle": "#33000000",
+                            "highlightColors": {
+                                "default": "#22000000",
+                                "subtle": "#11000000"
+                            }
+                        },
+                        "accent": {
+                            "default": "#2E89FC",
+                            "subtle": "#882E89FC",
+                            "highlightColors": {
+                                "default": "#22000000",
+                                "subtle": "#11000000"
+                            }
+                        },
+                        "good": {
+                            "default": "#54a254",
+                            "subtle": "#DD54a254",
+                            "highlightColors": {
+                                "default": "#22000000",
+                                "subtle": "#11000000"
+                            }
+                        },
+                        "warning": {
+                            "default": "#c3ab23",
+                            "subtle": "#DDc3ab23",
+                            "highlightColors": {
+                                "default": "#22000000",
+                                "subtle": "#11000000"
+                            }
+                        },
+                        "attention": {
+                            "default": "#FF0000",
+                            "subtle": "#DDFF0000",
+                            "highlightColors": {
+                                "default": "#22000000",
+                                "subtle": "#11000000"
+                            }
+                        }
+                    },
+                    "backgroundColor": "#F0F0F0"
+                }
+            },
+            "actions": {
+                "maxActions": 100,
+                "spacing": "Default",
+                "buttonSpacing": 8,
+                "showCard": {
+                    "actionMode": "Inline",
+                    "inlineTopMargin": 8,
+                    "style": "emphasis"
+                },
+                "preExpandSingleShowCardAction": false,
+                "actionsOrientation": "horizontal",
+                "actionAlignment": "Stretch",
+                "wrap": true,
+                "buttonStyles": {
+                    "positive": {
+                        "backgroundColor": "#091359",
+                        "foregroundColors": {
+                            "default": {
+                                "color": "#FFFFFF"
+                            }
+                        }
+                    }
+                }
+            },
+            "adaptiveCard": {
+                "allowCustomStyle": false
+            },
+            "imageSet": {
+                "maxImageHeight": 100
+            },
+            "media": {
+                "allowInlinePlayback": true
+            },
+            "factSet": {
+                "title": {
+                    "size": "Default",
+                    "color": "Default",
+                    "isSubtle": false,
+                    "weight": "Bolder",
+                    "wrap": true
+                },
+                "value": {
+                    "size": "Default",
+                    "color": "Default",
+                    "isSubtle": false,
+                    "weight": "Default",
+                    "wrap": true
+                },
+                "spacing": 8
+            },
+            "cssClassNamePrefix": null,
+            "_legacyFontType": {
+                "fontFamily": "Segoe UI,Segoe,Segoe WP,Helvetica Neue,Helvetica,sans-serif",
+                "fontSizes": {
+                    "small": 12,
+                    "default": 14,
+                    "medium": 17,
+                    "large": 21,
+                    "extraLarge": 26
+                },
+                "fontWeights": {
+                    "lighter": 200,
+                    "default": 400,
+                    "bolder": 600
+                }
+            }
+        };
+
+        var SpartaURL = 'https://735c285c86c6e215bf710cfb1978a6.11.environment.api.powerplatform.com/powervirtualagents/botsbyschema/cr29f_spartaServCopilot/directline/token?api-version=2022-03-01-preview';
+        var TestURL = 'https://1ee0506a5e04e243861b868e1ba446.d5.environment.api.powerplatform.com/powervirtualagents/botsbyschema/cr448_sitAssist/directline/token?api-version=2022-03-01-preview';
+
+        var theURL = SpartaURL;
+
+        var userId = (Math.random().toString() + Date.now().toString()).substr(0, 64);
+
+        const { token } = await fetchJSON(theURL);
+        const directLine = window.WebChat.createDirectLine({ token });
+        const store = WebChat.createStore({}, ({ dispatch }) => next => action => {
+            const { type } = action;
+            console.log(action.type)
+            if (action.type === 'DIRECT_LINE/CONNECT_FULFILLED') {
+                dispatch({
+                    type: 'WEB_CHAT/SEND_EVENT',
+                    payload: {
+                        name: 'startConversation',
+                        type: 'event',
+                        value: { text: "hello" }
+                    }
+                });
+                return next(action);
+            }
+            // if (action.type === 'DIRECT_LINE/INCOMING_ACTIVITY') {
+            //     const activity = action.payload.activity;
+            //     let resourceUri;
+            //     if (activity.from && activity.from.role === 'bot' &&
+            //         (resourceUri = getOAuthCardResourceUri(activity))) {
+            //         exchangeTokenAsync(resourceUri).then(function (token) {
+            //             if (token) {
+            //                 directLine.postActivity({
+            //                     type: 'invoke',
+            //                     name: 'signin/tokenExchange',
+            //                     value: {
+            //                         id: activity.attachments[0].content.tokenExchangeResource.id,
+            //                         connectionName: activity.attachments[0].content.connectionName,
+            //                         token
+            //                     },
+            //                     "from": {
+            //                         id: userId,
+            //                         name: clientApplication.account.name,
+            //                         role: "user"
+            //                     }
+            //                 }).subscribe(
+            //                     id => {
+            //                         if (id === 'retry') {
+            //                             return next(action);
+            //                         }
+            //                     },
+            //                     error => {
+            //                         return next(action);
+            //                     }
+            //                 );
+            //                 return;
+            //             }
+            //             else
+            //                 return next(action);
+            //         });
+            //     }
+            //     else
+            //         return next(action);
+            // }
+            if (action.type === 'WEB_CHAT/SUBMIT_SEND_BOX') {
+                debugger
+                if (FileContent && FileContent != null && FileContent != '') {
+                    dispatch({
+                        type: 'WEB_CHAT/SEND_EVENT',
+                        payload: {
+                            name: 'uploadFile',
+                            type: 'event',
+                            value: {
+                                name: FileName,
+                                allowFile: AllowFile,
+                                content: FileContent,
+                                Extension: FileExtension
+                            }
+                        }
+                    });
+                }
+                return next(action);
+            }
+
+
+            if (action.type === 'WEB_CHAT/SET_SEND_BOX_ATTACHMENTS') {
+                debugger;
+                var payload = action.payload;
+                if (payload && payload.attachments && payload.attachments.length > 0) {
+                    var attachment = payload.attachments[0];  // Extract the first attachment
+                    if (attachment && attachment.blob) {  // Check if attachment and blob are not null
+                        var file = attachment.blob;
+
+                        FileName = file.name;
+                        FileType = file.type;
+                        FileExtension = getFileExtension(FileName);
+                        var FileSize = file.size;
+
+                        const readFile = (file) => {
+                            return new Promise((resolve, reject) => {
+                                const reader = new FileReader();
+                                reader.onload = (event) => {
+                                    resolve(event.target.result);
+                                };
+                                reader.onerror = (error) => {
+                                    reject(error);
+                                };
+                                reader.readAsDataURL(file);  // Change to readAsText(file), readAsArrayBuffer(file), etc.
+                            });
+                        };
+
+                        if (FileSize > 120 * 1024 || !['pdf', 'jpg', 'jpeg', 'doc', 'png'].includes(FileExtension)) {
+                            AllowFile = "false";
+                            dispatch({
+                                type: 'WEB_CHAT/SEND_EVENT',
+                                payload: {
+                                    name: 'fileUploadError',
+                                    type: 'event',
+                                    value: {
+                                        message: "File exceeds 100KB and is not a pdf, jpg, jpeg, or doc",
+                                    }
+                                }
+                            });
+                        } else {
+                            AllowFile = "true";
+                            readFile(file)
+                                .then((fileContent) => {
+                                    FileContent = fileContent.split(',')[1];
+                                })
+                                .catch((error) => {
+                                    console.error('Error reading file:', error);
+                                });
+                        }
+                    }
+                }
+                return next(action);
+            }
+            else
+                return next(action);
+        });
+
+        directLine.activity$.subscribe(activity => {
+            console.log('Activity received:', activity);
+
+            if (activity.type === 'event' && activity.name === 'fileUpload') {
+                console.log('File upload event received:', activity);
+                styleOptions = {
+                    botAvatarImage: 'https://dev-spartaservportal.azurewebsites.net/img/sparta-icon.png',
+                    botAvatarInitials: 'Sparta',
+                    hideUploadButton: false
+                };
+            } else {
+                styleOptions = {
+                    botAvatarImage: 'https://dev-spartaservportal.azurewebsites.net/img/sparta-icon.png',
+                    botAvatarInitials: 'Sparta',
+                    hideUploadButton: true
+                };
+            }
+
+            if (activity.type === 'event' && activity.name === 'FileDownload') {
+                debugger
+                if (activity.value != null) {
+                    var Content = activity.value.FileContent;
+                    var Name = activity.value.name;
+                    var Type = getMimeType(Name);
+                    downloadFile(Content, Name, Type);
+                }
+            }
+
+            if (activity.type === 'event' && activity.name === 'FileOpen') {
+                debugger
+                if (activity.value != null) {
+                    var Content = activity.value.FileContent;
+                    var Name = activity.value.name;
+                    var Type = getMimeType(Name);
+                    openFileInNewWindow(Content, Name);
+                }
+            }
+
+
+            // Re-render Web Chat to apply new style options
+            window.WebChat.renderWebChat(
+                {
+                    adaptiveCardHostConfig,
+                    directLine: directLine,
+                    store,
+                    userID: userId,
+                    styleSet,
+                    styleOptions
+                },
+                document.getElementById('webchat')
+            );
+        });
+
+        function downloadFile(base64Content, fileName, fileType) {
+            debugger
+            // Decode the base64 content
+            const byteCharacters = atob(base64Content);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+
+            // Create a blob with the file content and type
+            const blob = new Blob([byteArray], { type: fileType });
+
+            // Create a link element and set the href to a URL created from the blob
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = fileName;
+
+            // Append the link to the body and click it to start the download
+            document.body.appendChild(link);
+            link.click();
+
+            // Remove the link from the document
+            document.body.removeChild(link);
+        }
+
+        function openFileInNewWindow(base64Content, fileName) {
+            // Extract the file type from the file name
+            const fileType = getMimeType(fileName); // Call getMimeType to derive the MIME type
+
+            // Decode the base64 content
+            const byteCharacters = atob(base64Content);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+
+            // Create a blob with the file content and type
+            const blob = new Blob([byteArray], { type: fileType });
+
+            // Create a URL for the blob and open it in a new window
+            const blobUrl = URL.createObjectURL(blob);
+
+            // Open the file in a new window or tab
+            window.open(blobUrl, '_blank');
+
+            // Optionally, release the object URL after some delay to avoid memory leaks
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+        }
+
+        function getMimeType(fileName) {
+            const extension = fileName.split('.').pop().toLowerCase();
+            const mimeTypes = {
+                'pdf': 'application/pdf',
+                'txt': 'text/plain',
+                'jpg': 'image/jpeg',
+                'jpeg': 'image/jpeg',
+                'png': 'image/png',
+                'doc': 'application/msword',
+                'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                // Add other MIME types as needed
+            };
+            return mimeTypes[extension] || 'application/octet-stream';
+        }
+
+        function getFileExtension(fileName) {
+            const extension = fileName.split('.').pop().toLowerCase();
+            return extension;
+        }
+
+        // const styleOptions = {
+        //     hideUploadButton: true,
+        //     bubbleBackground: '#ECEFF1', // Bot conversation background color
+        //     bubbleFromUserBackground: '#091359', // User conversation background color
+        //     bubbleTextColor: 'black', // Bot text color
+        //     bubbleFromUserTextColor: 'white', // User text color
+        //     bubbleBorderRadius: 10, // Border radius for the bot messages
+        //     bubbleFromUserBorderRadius: 10, // Border radius for the user messages
+        //     buttonBackground: '#000000', // Button background color
+        //     buttonTextColor: '#FFFFFF', // Button text color
+        //     buttonBorderColor: '#FFFFFF', // Button border color
+        //     buttonBorderRadius: 5, // Border radius for the buttons
+        //     buttonPadding: '10px 15px', // Padding for the buttons
+        //     buttonHoverBackground: '#333333', // Background color when hovering over the button
+        //     buttonHoverTextColor: '#FFFFFF', // Tex
+
+        // };
+
+        // const styleSet = window.WebChat.createStyleSet({
+        //     bubbleBackground: '#ECEFF1',
+        //     bubbleFromUserBackground: '#091359',
+        //     bubbleTextColor: 'black',
+        //     bubbleFromUserTextColor: 'white',
+        //     bubbleBorderRadius: 10,
+        //     bubbleFromUserBorderRadius: 10,
+        //     buttonBackground: '#000000',
+        //     buttonTextColor: '#FFFFFF',
+        //     buttonBorderColor: '#FFFFFF',
+        //     buttonBorderRadius: 5,
+        //     buttonPadding: '10px 15px',
+        //     buttonHoverBackground: '#333333',
+        //     buttonHoverTextColor: '#FFFFFF',
+        //     suggestedActionBackground: '#FFFFFF',
+        //     suggestedActionBorderColor: '#8C8C8C',
+        //     suggestedActionTextColor: '#091359',  // Set Suggested Action button font color to #091359
+        //     suggestedActionBorderRadius: '5px',
+        //     suggestedActionPadding: '10px 15px',
+        //     primaryFont: 'Poppins, sans-serif',
+        //     monospaceFont: "'Poppins', monospace",
+        // });
+
+        window.WebChat.renderWebChat(
+            {
+                adaptiveCardHostConfig,
+                directLine: directLine,
+                store,
+                userID: userId,
+                styleSet,
+                styleOptions
+            },
+            document.getElementById('webchat')
+        );
+    })().catch(err => console.error("An error occurred: " + err));
+</script>
+
+<script>
+    function closeChatWindow() {
+        var chatWindow = parent.document.getElementById('chatWindow');
+        chatWindow.style.display = 'none';
+    }
+
+
+    function RefreshIFrame() {
+        $(parent.document).find('#copilotLoader').show();
+        var chatIframe = parent.document.getElementById('chatIframe');
+        chatIframe.src = chatIframe.src;
+        $(chatIframe).on('load', function () {
+            setTimeout(function () {
+                $(parent.document).find('#copilotLoader').hide();
+            }, 1000);
+        });
+    }
+
+</script>
+
+</html>
